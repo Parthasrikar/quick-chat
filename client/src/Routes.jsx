@@ -1,16 +1,15 @@
+/* eslint-disable no-unused-vars */
 import { useContext } from "react";
-import Register from "./RegisterandLogin";
+import RegisterAndLogin from "./RegisterAndLogin";
 import { UserContext } from "./User";
 import Chat from "./Chat";
 
 export default function Routes() {
-    const {username, id} = useContext(UserContext)
+  const { username, id } = useContext(UserContext);
 
-    if (username) {
-        return <Chat/>
-    }
+  if (username) {
+    return <Chat />;
+  }
 
-    return (
-        <Register></Register>
-    )
+  return <RegisterAndLogin />;
 }
