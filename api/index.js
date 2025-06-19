@@ -15,8 +15,12 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
-    credentials: true
+  origin: [
+    "http://localhost:5173", 
+    "http://localhost:3001",
+    "https://your-frontend-app.onrender.com", // Add your actual frontend URL
+  ],
+  credentials: true
 }));
 
 app.use(cookieParser());
