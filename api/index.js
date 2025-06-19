@@ -10,13 +10,14 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const ws = require('ws');
 
+// Use PORT from environment or default to 3000
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
-app.use(cors(
-    {
-        origin: process.env.CLIENT_URL,
-        credentials: true
-    }
-))
+app.use(cors({
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    credentials: true
+}));
 
 app.use(cookieParser());
 
@@ -24,7 +25,7 @@ mongoose.connect(process.env.MONGO_URL).then(() => {
     console.log("✅ MongoDB Connected");
 }).catch(err => {
     console.error("❌ MongoDB Connection Error:", err);
-    process.exit(1); // Exit if DB connection fails
+    process.exit(1);
 });
 
 const jwtsecret = process.env.JWT_SECRET;
@@ -41,8 +42,12 @@ if (!process.env.MONGO_URL) {
 }
 
 app.get("/", (req, res) => {
-    res.json({ success: true })
-})
+    res.json({ 
+        success: true,
+        message: "Chat API is running!",
+        timestamp: new Date().toISOString()
+    });
+});
 
 async function getUserDataFromRequest(req) {
   return new Promise((resolve, reject) => {
@@ -80,12 +85,10 @@ app.get("/messages/:userId", async (req, res) => {
     try {
         const { userId } = req.params;
 
-        // Validate userId parameter
         if (!userId || userId.trim() === '') {
             return res.status(400).json({ error: "User ID is required" });
         }
 
-        // Validate MongoDB ObjectId format
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ error: "Invalid User ID format" });
         }
@@ -99,7 +102,6 @@ app.get("/messages/:userId", async (req, res) => {
         const ourUserId = userData.id;
         console.log({ userId, ourUserId });
         
-        // Fixed: Correct message filtering logic
         const messages = await Message.find({
             $or: [
                 { sender: userId, recipient: ourUserId },
@@ -117,7 +119,6 @@ app.get("/messages/:userId", async (req, res) => {
 
 app.get("/profile", (req, res) => {
     try {
-        // Verify JWT token
         const token = req.cookies?.token;
         if (!token) {
             return res.status(401).json({ error: "You are not authenticated" });
@@ -140,7 +141,6 @@ app.post("/login", async (req, res) => {
     try {
         const { username, password } = req.body;
 
-        // Validate input
         if (!username || !password) {
             return res.status(400).json({ error: "Username and password are required" });
         }
@@ -157,27 +157,30 @@ app.post("/login", async (req, res) => {
             return res.status(400).json({ error: "Password cannot be empty" });
         }
 
-        // Find user by username
         const foundUser = await User.findOne({ username });
         if (!foundUser) {
             return res.status(404).json({ error: "User not found" });
         }
 
-        // Compare provided password with stored hashed password
         const passOk = bcrypt.compareSync(password, foundUser.password);
         if (!passOk) {
             return res.status(401).json({ error: "Invalid password" });
         }
 
-        // Generate JWT token
         jwt.sign({ id: foundUser._id, username }, jwtsecret, (err, token) => {
             if (err) {
                 console.error("Token generation error:", err);
                 return res.status(500).json({ error: "Token generation failed" });
             }
 
-            // Set cookie with JWT token
-            res.cookie("token", token, { sameSite: 'none', secure: true })
+            // Updated cookie settings for production
+            const cookieOptions = {
+                sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+                secure: process.env.NODE_ENV === 'production',
+                httpOnly: false // Keep false for client-side access
+            };
+
+            res.cookie("token", token, cookieOptions)
                 .status(200)
                 .json({ id: foundUser._id });
         });
@@ -192,7 +195,6 @@ app.post("/register", async (req, res) => {
     try {
         const { username, password } = req.body;
 
-        // Validate input
         if (!username || !password) {
             return res.status(400).json({ error: "Username and password are required" });
         }
@@ -209,19 +211,16 @@ app.post("/register", async (req, res) => {
             return res.status(400).json({ error: "Password must be at least 6 characters long" });
         }
 
-        // Check for valid username characters (optional - remove if not needed)
         const usernameRegex = /^[a-zA-Z0-9_-]+$/;
         if (!usernameRegex.test(username)) {
             return res.status(400).json({ error: "Username can only contain letters, numbers, underscores, and hyphens" });
         }
 
-        // Check if user already exists
         const existingUser = await User.findOne({ username });
         if (existingUser) {
             return res.status(400).json({ error: "Username already taken" });
         }
 
-        // Hash password
         bcrypt.genSalt(10, (err, salt) => {
             if (err) {
                 console.error("Salt generation error:", err);
@@ -235,20 +234,24 @@ app.post("/register", async (req, res) => {
                 }
 
                 try {
-                    // Create new user with hashed password
                     const newUser = await User.create({
                         username: username.trim(),
                         password: hash
                     });
 
-                    // Generate JWT token
                     jwt.sign({ id: newUser._id, username }, jwtsecret, (err, token) => {
                         if (err) {
                             console.error("Token generation error:", err);
                             return res.status(500).json({ error: "Token generation failed" });
                         }
 
-                        res.cookie("token", token, { sameSite: 'none', secure: true })
+                        const cookieOptions = {
+                            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+                            secure: process.env.NODE_ENV === 'production',
+                            httpOnly: false
+                        };
+
+                        res.cookie("token", token, cookieOptions)
                             .status(201)
                             .json({ id: newUser._id });
                     });
@@ -278,6 +281,15 @@ app.get('/people', async(req, res) => {
     }
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
 // Global error handler
 app.use((error, req, res, next) => {
     console.error("Unhandled error:", error);
@@ -289,11 +301,12 @@ app.use((req, res) => {
     res.status(404).json({ error: "Route not found" });
 });
 
-const server = app.listen(3000, '0.0.0.0', () => { 
-    console.log("Server is running on port 3000")
+// Updated server listen - Render assigns the PORT
+const server = app.listen(PORT, '0.0.0.0', () => { 
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
-// Handle server errors
 server.on('error', (error) => {
     console.error('Server error:', error);
 });
@@ -328,8 +341,6 @@ wss.on("connection", (connection, req) => {
                         connection.id = user.id;
 
                         console.log(`User ${user.username} connected`);
-                        
-                        // Broadcast updated online users only after authentication is successful
                         broadcastOnlineUsers();
                     });
                 } else {
@@ -366,7 +377,6 @@ wss.on("connection", (connection, req) => {
 
             const { recipient, text } = messageData;
 
-            // Validate message data
             if (!recipient || !text) {
                 console.warn("Invalid message format: missing recipient or text");
                 return;
@@ -382,12 +392,11 @@ wss.on("connection", (connection, req) => {
                 return;
             }
 
-            if (text.length > 1000) { // Optional: limit message length
+            if (text.length > 1000) {
                 console.warn("Message too long");
                 return;
             }
 
-            // Validate recipient ID format
             if (!mongoose.Types.ObjectId.isValid(recipient)) {
                 console.warn("Invalid recipient ID format");
                 return;
@@ -399,7 +408,6 @@ wss.on("connection", (connection, req) => {
                 text: text.trim(),
             });
 
-            // Send message to recipient
             const recipientConnections = [...wss.clients].filter((c) => c.id === recipient);
             recipientConnections.forEach((c) => {
                 try {
@@ -463,7 +471,6 @@ wss.on("connection", (connection, req) => {
     }
 });
 
-// Handle WebSocket server errors
 wss.on('error', (error) => {
     console.error('WebSocket server error:', error);
 });

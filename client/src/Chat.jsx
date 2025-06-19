@@ -10,6 +10,28 @@ import { uniqBy } from "lodash";
 import axios from 'axios';
 import Contact from "./Contact";
 
+// Configuration for different environments
+const config = {
+  development: {
+    wsUrl: "ws://localhost:3000",
+    apiUrl: "http://localhost:3000"
+  },
+  production: {
+    wsUrl: "wss://quick-chat-backend-ddik.onrender.com",
+    apiUrl: "https://quick-chat-backend-ddik.onrender.com"
+  }
+};
+
+// Determine current environment
+const isDevelopment = process.env.NODE_ENV === 'development' || 
+                     window.location.hostname === 'localhost' || 
+                     window.location.hostname === '127.0.0.1';
+
+const currentConfig = isDevelopment ? config.development : config.production;
+
+// Set axios base URL
+axios.defaults.baseURL = currentConfig.apiUrl;
+
 export default function Chat() {
   const [ws, setWs] = useState(null);
   const [people, setPeople] = useState({});
@@ -31,23 +53,28 @@ export default function Chat() {
 
   function connectToWs() {
     setConnectionStatus('connecting');
-    const ws = new WebSocket("ws://localhost:3000");
+    console.log(`Connecting to: ${currentConfig.wsUrl}`);
+    
+    const ws = new WebSocket(currentConfig.wsUrl);
     setWs(ws);
     
     ws.addEventListener("open", () => {
       setConnectionStatus('connected');
-      console.log("WebSocket connected");
+      console.log("WebSocket connected successfully");
     });
     
     ws.addEventListener("message", handleMessage);
     
-    ws.addEventListener("close", () => {
+    ws.addEventListener("close", (event) => {
       setConnectionStatus('disconnected');
-      console.log("WebSocket disconnected");
+      console.log("WebSocket disconnected:", event.code, event.reason);
+      
+      // Reconnect after a delay, with exponential backoff for production
+      const reconnectDelay = isDevelopment ? 1000 : Math.min(1000 * Math.pow(2, Math.random()), 30000);
       setTimeout(() => {
         console.log("Attempting to reconnect...");
         connectToWs();  
-      }, 1000);
+      }, reconnectDelay);
     });
 
     ws.addEventListener("error", (error) => {
@@ -144,29 +171,37 @@ export default function Chat() {
 
   useEffect(() => {
     if (selectedUser) {
-      axios.get(`/messages/${selectedUser}`).then(res => {
-        console.log("Fetched messages:", res.data);
-        setMessages(res.data);
-      }).catch(err => {
-        console.error("Error fetching messages:", err);
-      });
+      axios.get(`/messages/${selectedUser}`)
+        .then(res => {
+          console.log("Fetched messages:", res.data);
+          setMessages(res.data);
+        })
+        .catch(err => {
+          console.error("Error fetching messages:", err);
+          // Handle error gracefully
+          if (err.response?.status === 401) {
+            console.log("Authentication required");
+          }
+        });
     }
   }, [selectedUser]);
 
   useEffect(() => {
     if (id) {
-      axios.get('/people').then(res => {
-        const offlinePeopleArr = res.data
-          .filter(p => p._id !== id)
-          .filter(p => !Object.keys(people).includes(p._id));
-        const offlinePeople = {};
-        offlinePeopleArr.forEach(p => {
-          offlinePeople[p._id] = p;
+      axios.get('/people')
+        .then(res => {
+          const offlinePeopleArr = res.data
+            .filter(p => p._id !== id)
+            .filter(p => !Object.keys(people).includes(p._id));
+          const offlinePeople = {};
+          offlinePeopleArr.forEach(p => {
+            offlinePeople[p._id] = p;
+          });
+          setOfflinePeople(offlinePeople);
+        })
+        .catch(err => {
+          console.error("Error fetching people:", err);
         });
-        setOfflinePeople(offlinePeople);
-      }).catch(err => {
-        console.error("Error fetching people:", err);
-      });
     }
   }, [people, id]);
 
@@ -216,8 +251,15 @@ export default function Chat() {
         }`}>
           {connectionStatus === 'connected' ? '🟢 Connected' :
            connectionStatus === 'connecting' ? '🟡 Connecting...' :
-           '🔴 Disconnected'}
+           '🔴 Disconnected - Reconnecting...'}
         </div>
+
+        {/* Environment Indicator (only in development) */}
+        {isDevelopment && (
+          <div className="px-4 py-1 text-xs bg-blue-100 text-blue-800 flex-shrink-0">
+            🔧 Development Mode
+          </div>
+        )}
 
         {/* Current User Info */}
         <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200 flex-shrink-0">
@@ -362,7 +404,7 @@ export default function Chat() {
                 value={newMessageText}
                 onChange={(e) => setNewMessageText(e.target.value)}
                 className="flex-1 px-4 py-3 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
-                placeholder="Type your message..."
+                placeholder={connectionStatus === 'connected' ? "Type your message..." : "Connecting..."}
                 disabled={connectionStatus !== 'connected'}
               />
               <button
