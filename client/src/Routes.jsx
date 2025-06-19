@@ -1,6 +1,6 @@
 /* eslint-disable no-unused-vars */
 import { useContext } from "react";
-import RegisterAndLogin from "./RegisterAndLogin";
+import RegisterAndLogin from "./RegisterAndLogin.jsx";
 import { UserContext } from "./User";
 import Chat from "./Chat";
 
