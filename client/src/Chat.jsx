@@ -22,14 +22,38 @@ const config = {
   }
 };
 
-// Determine current environment using Vite's built-in env detection
-const isDevelopment = import.meta.env.DEV;
-const currentConfig = isDevelopment ? config.development : config.production;
+// Replace the config section at the top of your Chat.jsx file with this:
+
+// Configuration for different environments
+const getConfig = () => {
+  const isDev = import.meta.env.DEV;
+  
+  // Debug logging
+  console.log('Environment Variables:');
+  console.log('VITE_API_URL:', import.meta.env.VITE_API_URL);
+  console.log('VITE_WS_URL:', import.meta.env.VITE_WS_URL);
+  console.log('Is Development:', isDev);
+  
+  if (isDev) {
+    return {
+      wsUrl: import.meta.env.VITE_WS_URL || "ws://localhost:3000",
+      apiUrl: import.meta.env.VITE_API_URL || "http://localhost:3000"
+    };
+  } else {
+    return {
+      wsUrl: import.meta.env.VITE_WS_URL || "wss://quick-chat-backend-ddik.onrender.com",
+      apiUrl: import.meta.env.VITE_API_URL || "https://quick-chat-backend-ddik.onrender.com"
+    };
+  }
+};
+
+const currentConfig = getConfig();
 
 // Set axios base URL
 axios.defaults.baseURL = currentConfig.apiUrl;
 
-console.log('Environment:', isDevelopment ? 'development' : 'production');
+console.log('Final Configuration:');
+console.log('Environment:', import.meta.env.DEV ? 'development' : 'production');
 console.log('WebSocket URL:', currentConfig.wsUrl);
 console.log('API URL:', currentConfig.apiUrl);
 
