@@ -18,7 +18,7 @@ app.use(cors({
   origin: [
     "http://localhost:5173", 
     "http://localhost:3001",
-    "https://your-frontend-app.onrender.com", // Add your actual frontend URL
+    "https://quick-chat-frontend-lkb2.onrender.com", // Add your actual frontend URL
   ],
   credentials: true
 }));
