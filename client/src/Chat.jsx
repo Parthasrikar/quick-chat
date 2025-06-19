@@ -10,27 +10,28 @@ import { uniqBy } from "lodash";
 import axios from 'axios';
 import Contact from "./Contact";
 
-// Configuration for different environments
+// Configuration for different environments using Vite env variables
 const config = {
   development: {
-    wsUrl: "ws://localhost:3000",
-    apiUrl: "http://localhost:3000"
+    wsUrl: import.meta.env.VITE_WS_URL || "ws://localhost:3000",
+    apiUrl: import.meta.env.VITE_API_URL || "http://localhost:3000"
   },
   production: {
-    wsUrl: "wss://quick-chat-backend-ddik.onrender.com",
-    apiUrl: "https://quick-chat-backend-ddik.onrender.com"
+    wsUrl: import.meta.env.VITE_WS_URL || "wss://quick-chat-backend-ddik.onrender.com",
+    apiUrl: import.meta.env.VITE_API_URL || "https://quick-chat-backend-ddik.onrender.com"
   }
 };
 
-// Determine current environment
-const isDevelopment = process.env.NODE_ENV === 'development' || 
-                     window.location.hostname === 'localhost' || 
-                     window.location.hostname === '127.0.0.1';
-
+// Determine current environment using Vite's built-in env detection
+const isDevelopment = import.meta.env.DEV;
 const currentConfig = isDevelopment ? config.development : config.production;
 
 // Set axios base URL
 axios.defaults.baseURL = currentConfig.apiUrl;
+
+console.log('Environment:', isDevelopment ? 'development' : 'production');
+console.log('WebSocket URL:', currentConfig.wsUrl);
+console.log('API URL:', currentConfig.apiUrl);
 
 export default function Chat() {
   const [ws, setWs] = useState(null);
@@ -69,11 +70,16 @@ export default function Chat() {
       setConnectionStatus('disconnected');
       console.log("WebSocket disconnected:", event.code, event.reason);
       
-      // Reconnect after a delay, with exponential backoff for production
-      const reconnectDelay = isDevelopment ? 1000 : Math.min(1000 * Math.pow(2, Math.random()), 30000);
+      // Reconnect with exponential backoff
+      const baseDelay = isDevelopment ? 1000 : 2000;
+      const jitter = Math.random() * 1000;
+      const reconnectDelay = Math.min(baseDelay + jitter, 30000);
+      
       setTimeout(() => {
         console.log("Attempting to reconnect...");
-        connectToWs();  
+        if (id) { // Only reconnect if user is still logged in
+          connectToWs();
+        }
       }, reconnectDelay);
     });
 
@@ -88,8 +94,8 @@ export default function Chat() {
       connectToWs();
     }
     return () => {
-      if (ws) {
-        ws.close();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close(1000, 'Component unmounting');
       }
     };
   }, [id]);
@@ -105,13 +111,17 @@ export default function Chat() {
   }
 
   const handleMessage = (e) => {
-    const message = JSON.parse(e.data);
-    console.log("Received message:", message);
-    
-    if ("online" in message) {
-      showPeopleOnline(message.online);
-    } else if ('text' in message) {
-      setMessages((prevMessages) => [...prevMessages, { ...message }]);
+    try {
+      const message = JSON.parse(e.data);
+      console.log("Received message:", message);
+      
+      if ("online" in message) {
+        showPeopleOnline(message.online);
+      } else if ('text' in message) {
+        setMessages((prevMessages) => [...prevMessages, { ...message }]);
+      }
+    } catch (error) {
+      console.error("Error parsing WebSocket message:", error);
     }
   };
 
@@ -120,19 +130,24 @@ export default function Chat() {
     if (!newMessageText.trim() || !ws || !selectedUser || connectionStatus !== 'connected') return;
     
     console.log("Sending message:", newMessageText);
-    ws.send(JSON.stringify({
-      recipient: selectedUser,
-      text: newMessageText,
-    }));
     
-    setMessages(prev => ([...prev, {
-      text: newMessageText,
-      sender: id,
-      recipient: selectedUser,
-      _id: Date.now(),
-    }]));
-    
-    setNewMessageText("");
+    try {
+      ws.send(JSON.stringify({
+        recipient: selectedUser,
+        text: newMessageText,
+      }));
+      
+      setMessages(prev => ([...prev, {
+        text: newMessageText,
+        sender: id,
+        recipient: selectedUser,
+        _id: Date.now(),
+      }]));
+      
+      setNewMessageText("");
+    } catch (error) {
+      console.error("Error sending message:", error);
+    }
   }
 
   useEffect(() => {
@@ -178,7 +193,6 @@ export default function Chat() {
         })
         .catch(err => {
           console.error("Error fetching messages:", err);
-          // Handle error gracefully
           if (err.response?.status === 401) {
             console.log("Authentication required");
           }
@@ -247,10 +261,12 @@ export default function Chat() {
         <div className={`px-4 py-2 text-xs font-medium flex-shrink-0 ${
           connectionStatus === 'connected' ? 'bg-green-100 text-green-800' :
           connectionStatus === 'connecting' ? 'bg-yellow-100 text-yellow-800' :
+          connectionStatus === 'error' ? 'bg-red-100 text-red-800' :
           'bg-red-100 text-red-800'
         }`}>
           {connectionStatus === 'connected' ? '🟢 Connected' :
            connectionStatus === 'connecting' ? '🟡 Connecting...' :
+           connectionStatus === 'error' ? '🔴 Connection Error' :
            '🔴 Disconnected - Reconnecting...'}
         </div>
 
@@ -354,6 +370,9 @@ export default function Chat() {
                 <TfiJoomla className="text-6xl mb-4 mx-auto" />
                 <p className="text-lg font-medium">Welcome to Quick Chat!</p>
                 <p className="text-sm mt-2">Select a contact to start messaging</p>
+                {isDevelopment && (
+                  <p className="text-xs mt-4 text-blue-500">Running in development mode</p>
+                )}
               </div>
             </div>
           ) : (
